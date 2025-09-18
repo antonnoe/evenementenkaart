@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Evenementenkaart Frankrijk – Nederlanders.fr</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css">
+  <style>
+    :root { --accent: #800000; --text: #111; }
+    html, body { height:100%; margin:0; background:#fff; color:var(--text); font-family: Arial, sans-serif; }
+    .app { max-width: 1280px; margin: 0 auto; padding: 16px; line-height:1.5; }
+    h1, h2 { color: var(--accent); margin: 0 0 10px 0; }
+    .layout { display:flex; gap:18px; flex-wrap:wrap; }
+    aside { flex:1 1 360px; min-width: 320px; }
+    section.mapwrap { flex:2 1 520px; min-width:420px; }
+    #map { width:100%; height: 74vh; min-height: 560px; border:1px solid #ddd; border-radius:8px; }
+    .panel { border:1px solid #eee; border-left:4px solid var(--accent); border-radius:8px; padding:12px; margin-bottom:12px; }
+    .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+    input, select, button { padding:10px; border:1px solid #ccc; border-radius:6px; font: inherit; }
+    button.primary { background: var(--accent); color:#fff; border: none; cursor:pointer; }
+    #list { max-height: 60vh; overflow: auto; border:1px solid #eee; border-radius:8px; }
+    .evt-card { border-bottom:1px solid #eee; padding:12px; }
+    .badge { background: var(--accent); color:#fff; padding:6px 10px; border-radius:12px; font-size:12px; }
+    a { color: var(--accent); font-weight: bold; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .footer { margin-top: 12px; font-size: .9em; color:#333; }
+    @media (max-width: 720px){ #map{ height:60vh; } }
+  </style>
+</head>
+<body>
+  <div class="app" id="fr-events-app">
+    <div class="layout">
+      <aside>
+        <h1>Geografisch overzicht evenementen in Frankrijk</h1>
+        <p>Filter op <strong>type</strong>, <strong>maand</strong> en <strong>regio</strong>, of gebruik de zoekbalk (plaats, titel, omschrijving).</p>
+
+        <div class="panel">
+          <label style="display:block; font-weight:bold; margin-bottom:6px;" for="searchInput">Zoek</label>
+          <input id="searchInput" type="text" placeholder="Zoek op titel, plaats of omschrijving…" style="width:100%; margin-bottom:10px;" />
+          <div class="grid2" style="margin-bottom:10px;">
+            <select id="typeFilter">
+              <option value="">Alle types</option>
+              <option>Braderie</option>
+              <option>Brocante</option>
+              <option>Bloemencorso</option>
+              <option>Festival (muziek)</option>
+              <option>Theaterfestival</option>
+              <option>Carnaval</option>
+              <option>Overig</option>
+            </select>
+            <select id="monthFilter">
+              <option value="">Alle maanden</option>
+              <option value="1">januari</option><option value="2">februari</option><option value="3">maart</option>
+              <option value="4">april</option><option value="5">mei</option><option value="6">juni</option>
+              <option value="7">juli</option><option value="8">augustus</option><option value="9">september</option>
+              <option value="10">oktober</option><option value="11">november</option><option value="12">december</option>
+            </select>
+            <select id="regionFilter" style="grid-column:1 / -1;">
+              <option value="">Alle regio’s</option>
+              <option>Île-de-France</option>
+              <option>Hauts-de-France</option>
+              <option>Normandie</option>
+              <option>Bretagne</option>
+              <option>Pays de la Loire</option>
+              <option>Centre-Val de Loire</option>
+              <option>Bourgogne-Franche-Comté</option>
+              <option>Grand Est</option>
+              <option>Nouvelle-Aquitaine</option>
+              <option>Auvergne-Rhône-Alpes</option>
+              <option>Occitanie</option>
+              <option>Provence-Alpes-Côte d’Azur</option>
+              <option>Corse</option>
+            </select>
+            <!-- NL verenigingen filter -->
+            <label style="display:flex; align-items:center; gap:8px; margin-top:6px; grid-column:1 / -1;">
+              <input id="nlAssocOnly" type="checkbox" />
+              <span>Alleen gebeurtenissen van <strong>Nederlandse verenigingen in Frankrijk</strong></span>
+            </label>
+          </div>
+          <button id="resetBtn" class="primary">Reset filters</button>
+        </div>
+        <div id="countBox" class="footer"></div>
+        <div id="list"></div>
+        <p class="footer">👉 Tip een lokaal evenement of wijziging: <a href="https://www.nederlanders.fr" target="_blank" rel="noopener">Nederlanders.fr</a></p>
+      </aside>
+
+      <section class="mapwrap">
+        <div id="map" role="region" aria-label="Kaart met evenementen"></div>
+      </section>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin></script>
+  <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+  <script>
+  (function(){
+    // ====== CONFIG ======
+    const MAP_CENTER = [46.6, 2.2];
+    const MAP_ZOOM   = 6;
+    const THEME      = getComputedStyle(document.documentElement).getPropertyValue('--accent') || '#800000';
+    // CSV bron (optioneel). Public CSV-URL van Google Sheets of eigen hosting.
+    // Laat leeg om lokale EVENTS-array te gebruiken.
+    const CSV_URL    = ""; // bv: "https://docs.google.com/spreadsheets/d/....../export?format=csv"
+
+    // ====== UTIL ======
+    const months = ["","januari","februari","maart","april","mei","juni","juli","augustus","september","oktober","november","december"];
+    function fmtDate(dStr){ if(!dStr) return ""; const d=new Date(dStr); return Number.isNaN(d.getTime())? dStr : `${d.getDate()} ${months[d.getMonth()+1]} ${d.getFullYear()}`; }
+    function monthFromDate(dStr){ const d=new Date(dStr); return Number.isNaN(d.getTime())? "" : (d.getMonth()+1); }
+    function esc(s){ return (s||"").toString().replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
+    function matchesText(ev,q){ if(!q) return true; const hay=`${ev.title} ${ev.city} ${ev.region} ${ev.type} ${ev.description||""}`.toLowerCase(); return hay.includes(q.toLowerCase()); }
+    function inMonth(ev,m){ if(!m) return true; const s=monthFromDate(ev.start_date); const e=ev.end_date?monthFromDate(ev.end_date):s; return (+m>=s && +m<=e) || s===+m || e===+m; }
+
+    async function loadData(){ if(!CSV_URL) return EVENTS; const res=await fetch(CSV_URL); const txt=await res.text(); return csvToEvents(txt); }
+    function csvToEvents(csv){
+      const lines=csv.split(/\r?\n/).filter(Boolean); if(!lines.length) return [];
+      const headers=lines.shift().split(",").map(s=>s.trim()); const idx=n=>headers.findIndex(h=>h.toLowerCase()===n.toLowerCase());
+      const out=[]; for(const line of lines){ const cells=parseCsvLine(line); const ev={
+        title: cells[idx("title")]||"",
+        type: cells[idx("type")]||"Overig",
+        start_date: cells[idx("start_date")]||"",
+        end_date: cells[idx("end_date")]||"",
+        city: cells[idx("city")]||"",
+        region: cells[idx("region")]||"",
+        lat: parseFloat(cells[idx("lat")]||""),
+        lng: parseFloat(cells[idx("lng")]||""),
+        url: cells[idx("url")]||"",
+        price: cells[idx("price")]||"",
+        frequency: cells[idx("frequency")]||"",
+        description: cells[idx("description")]||"",
+        org_name: cells[idx("org_name")]||"",
+        org_url: cells[idx("org_url")]||"",
+        nl_assoc: /^(1|true|ja|yes)$/i.test(cells[idx("nl_assoc")]||"")
+      }; if(Number.isFinite(ev.lat) && Number.isFinite(ev.lng)) out.push(ev); }
+      return out;
+    }
+    function parseCsvLine(line){
+      const out=[]; let cur="", inQ=false; for(let i=0;i<line.length;i++){ const ch=line[i];
+        if(ch=='"'){ if(inQ && line[i+1]=='"'){ cur+='"'; i++; } else { inQ=!inQ; } }
+        else if(ch===',' && !inQ){ out.push(cur); cur=""; }
+        else { cur+=ch; }
+      } out.push(cur); return out.map(s=>s.trim());
+    }
+
+    // ====== MAP ======
+    const map=L.map('map').setView(MAP_CENTER, MAP_ZOOM);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{ attribution:'&copy; OpenStreetMap' }).addTo(map);
+    const cluster=L.markerClusterGroup({ showCoverageOnHover:false, spiderfyOnMaxZoom:true, maxClusterRadius:50 });
+    map.addLayer(cluster);
+    const iconHtml=t=>`<div style="background:${THEME}; color:#fff; padding:6px 8px; border-radius:14px; font-size:11px; white-space:nowrap;">${esc(t||"evt")}</div>`;
+    const divIcon=t=>L.divIcon({ html: iconHtml(t), className:'evt-pin', iconSize:[10,10], iconAnchor:[15,15] });
+
+    // ====== UI refs ======
+    const elSearch=document.getElementById('searchInput');
+    const elType=document.getElementById('typeFilter');
+    const elMonth=document.getElementById('monthFilter');
+    const elRegion=document.getElementById('regionFilter');
+    const elNlOnly=document.getElementById('nlAssocOnly');
+    const elList=document.getElementById('list');
+    const elCount=document.getElementById('countBox');
+    const elReset=document.getElementById('resetBtn');
+
+    let ALL=[], markers=[];
+
+    function applyFilters(){
+      const q=elSearch.value.trim(), ty=elType.value, mo=elMonth.value, re=elRegion.value;
+      const filtered=ALL.filter(ev=>{
+        const passText = matchesText(ev,q);
+        const passType = (!ty || ev.type===ty);
+        const passMonth= inMonth(ev,mo);
+        const passRegion= (!re || ev.region===re);
+        const passNl = (!elNlOnly || !elNlOnly.checked) || !!ev.nl_assoc;
+        return passText && passType && passMonth && passRegion && passNl;
+      });
+      renderList(filtered);
+      cluster.clearLayers(); markers=[];
+      filtered.forEach((ev, idx)=>{
+        const m=L.marker([ev.lat, ev.lng], { icon: divIcon(shortType(ev.type)) }).bindPopup(popupHtml(ev));
+        m.on('click',()=>highlightCard(idx)); markers.push(m);
+      });
+      cluster.addLayers(markers);
+      elCount.innerHTML=`<strong>${filtered.length}</strong> evenementen gevonden`;
+    }
+    function shortType(t){ if(!t) return 'evt'; const map={"Festival (muziek)":"festival","Theaterfestival":"theater","Bloemencorso":"corso","Brocante":"brocante","Braderie":"braderie","Carnaval":"carnaval","Overig":"evt"}; return map[t]||t.toLowerCase(); }
+    function popupHtml(ev){
+      const dates = (ev.end_date && ev.end_date!==ev.start_date) ? `${fmtDate(ev.start_date)} – ${fmtDate(ev.end_date)}` : fmtDate(ev.start_date);
+      const price = ev.price? `<div><strong>Entree:</strong> ${esc(ev.price)}</div>` : "";
+      const freq  = ev.frequency? `<div><strong>Frequentie:</strong> ${esc(ev.frequency)}</div>` : "";
+      const org   = ev.org_name? `<div style="margin-top:4px; font-size:.95em;"><strong>Organisatie:</strong> ${esc(ev.org_name)}${ev.org_url?` – <a href="${esc(ev.org_url)}" target="_blank" rel="noopener">website</a>`:''}</div>` : "";
+      const link  = ev.url? `<div style="margin-top:6px;"><a href="${esc(ev.url)}" target="_blank" rel="noopener">Meer info</a></div>` : "";
+      return `<div style="min-width:220px;"><div style="font-weight:bold; color:${THEME}; margin-bottom:4px;">${esc(ev.title)}</div><div><strong>Type:</strong> ${esc(ev.type)}</div><div><strong>Wanneer:</strong> ${dates||'n.t.b.'}</div><div><strong>Waar:</strong> ${esc(ev.city)}, ${esc(ev.region)}</div>${price}${freq}${org}${link}</div>`;
+    }
+    function renderList(list){
+      elList.innerHTML=''; list.sort((a,b)=> (a.start_date||'') > (b.start_date||'') ? 1 : -1);
+      list.forEach((ev, idx)=>{
+        const dates=(ev.end_date && ev.end_date!==ev.start_date) ? `${fmtDate(ev.start_date)} – ${fmtDate(ev.end_date)}` : (fmtDate(ev.start_date)||'n.t.b.');
+        const card=document.createElement('div'); card.className='evt-card';
+        card.innerHTML = `<div style="display:flex; gap:8px; align-items:flex-start;"><div class="badge">${esc(shortType(ev.type))}</div><div style="flex:1;"><div style="font-weight:bold; color:${THEME};">${esc(ev.title)}</div><div style="font-size:.95em; color:#333;">${dates} • ${esc(ev.city)}, ${esc(ev.region)}</div>${ev.org_name?`<div style="margin-top:2px; font-size:.9em; color:#444;"><strong>Organisatie:</strong> ${esc(ev.org_name)}</div>`:''}${ev.description?`<div style="margin-top:6px; font-size:.95em;">${esc(ev.description)}</div>`:''}${ev.url?`<div style="margin-top:6px;"><a href="${esc(ev.url)}" target="_blank" rel="noopener">Meer info</a></div>`:''}</div></div>`;
+        card.addEventListener('mouseenter',()=>{ if(markers[idx]) markers[idx].openPopup(); });
+        elList.appendChild(card);
+      });
+    }
+    function highlightCard(idx){ const cards=elList.querySelectorAll('.evt-card'); if(cards[idx]){ cards[idx].style.background='#fff6f6'; setTimeout(()=>cards[idx].style.background='', 600); cards[idx].scrollIntoView({behavior:'smooth', block:'nearest'}); } }
+
+    elSearch.addEventListener('input', applyFilters);
+    elType.addEventListener('change', applyFilters);
+    elMonth.addEventListener('change', applyFilters);
+    elRegion.addEventListener('change', applyFilters);
+    if(elNlOnly) elNlOnly.addEventListener('change', applyFilters);
+    elReset.addEventListener('click', ()=>{ elSearch.value=''; elType.value=''; elMonth.value=''; elRegion.value=''; if(elNlOnly) elNlOnly.checked=false; applyFilters(); });
+
+    // INIT
+    loadData().then(data=>{ ALL = data.filter(ev=>Number.isFinite(ev.lat)&&Number.isFinite(ev.lng)); applyFilters(); });
+
+    // VOORBEELD-DATA (vervang of overschrijf met CSV via CSV_URL)
+    const EVENTS=[
+      // Voorbeelden: Nederlandse verenigingen (vervang door echte data)
+      { title:"Koningsdag – Nederlanders in Parijs (NIP)", type:"Overig", start_date:"2025-04-27", end_date:"2025-04-27", city:"Parijs", region:"Île-de-France", lat:48.8566, lng:2.3522, url:"https://example.org", price:"", frequency:"Jaarlijks (27 april)", description:"Viering van Koningsdag met borrel en activiteiten.", org_name:"Nederlanders in Parijs (NIP)", org_url:"https://example.org", nl_assoc:true },
+      { title:"Sinterklaasviering – NVT Côte d’Azur", type:"Overig", start_date:"2025-12-06", end_date:"2025-12-06", city:"Nice", region:"Provence-Alpes-Côte d’Azur", lat:43.695, lng:7.265, url:"https://example.org", price:"", frequency:"Jaarlijks (begin december)", description:"Intocht/feest voor kinderen.", org_name:"Nederlands Vereniging Côte d’Azur (NVT)", org_url:"https://example.org", nl_assoc:true },
+
+      // Bestaande voorbeelden
+      { title:"Braderie de Lille", type:"Braderie", start_date:"2025-09-06", end_date:"2025-09-07", city:"Lille", region:"Hauts-de-France", lat:50.636565, lng:3.063528, url:"https://www.lille.fr", price:"Gratis", frequency:"Jaarlijks (1e weekend september)", description:"Een van de grootste braderieën van Europa met honderden kilometers kramen en mosselen-frites traditie." },
+      { title:"Grande Réderie d’Amiens (Lente)", type:"Brocante", start_date:"2025-04-27", end_date:"2025-04-27", city:"Amiens", region:"Hauts-de-France", lat:49.894067, lng:2.295753, url:"https://www.amiens.fr", price:"Gratis", frequency:"Tweejaarlijks (april & oktober)", description:"Mega vide-grenier met duizenden standhouders in het centrum van Amiens." },
+      { title:"Grande Réderie d’Amiens (Herfst)", type:"Brocante", start_date:"2025-10-05", end_date:"2025-10-05", city:"Amiens", region:"Hauts-de-France", lat:49.894067, lng:2.295753, url:"https://www.amiens.fr", price:"Gratis", frequency:"Tweejaarlijks (april & oktober)" },
+      { title:"Fête de la Musique", type:"Festival (muziek)", start_date:"2025-06-21", end_date:"2025-06-21", city:"Heel Frankrijk", region:"Île-de-France", lat:48.8566, lng:2.3522, url:"https://fetedelamusique.culture.gouv.fr", price:"Veelal gratis", frequency:"Jaarlijks (21 juni)", description:"Concerten in straten en pleinen door heel Frankrijk; van dorp tot metropool." },
+      { title:"Carnaval de Nice – Bataille de Fleurs", type:"Bloemencorso", start_date:"2025-02-15", end_date:"2025-03-02", city:"Nice", region:"Provence-Alpes-Côte d’Azur", lat:43.695, lng:7.265, url:"https://www.nicecarnaval.com", price:"Betaald (variabel)", frequency:"Jaarlijks (februari)", description:"Iconische bloemencorso en carnavalsparade aan de Promenade des Anglais." },
+      { title:"Festival d’Avignon", type:"Theaterfestival", start_date:"2025-07-04", end_date:"2025-07-24", city:"Avignon", region:"Provence-Alpes-Côte d’Azur", lat:43.9493, lng:4.8055, url:"https://festival-avignon.com", price:"Betaald (variabel)", frequency:"Jaarlijks (juli)", description:"Een van Europa’s belangrijkste theaterfestivals, in en rond het Palais des Papes." },
+      { title:"Les Puces de Montsoreau", type:"Brocante", start_date:"2025-01-12", end_date:"2025-12-14", city:"Montsoreau", region:"Pays de la Loire", lat:47.2157, lng:-0.0623, url:"https://www.ville-montsoreau.fr", price:"Gratis", frequency:"Elke 2e zondag van de maand", description:"Antiek- en brocantemarkt langs de Loire." }
+    ];
+  })();
+  </script>
+</body>
+</html>
